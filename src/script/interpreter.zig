@@ -132,7 +132,7 @@ test "interpreter verifyDetailed exposes structured false results" {
         .inputs = &[_]Input{
             .{
                 .previous_outpoint = OutPoint{
-                    .txid = .{ .bytes = [_]u8{0} ** 32 },
+                    .txid = .{ .bytes = @as([32]u8, @splat(0)) },
                     .index = 0,
                 },
                 .unlocking_script = Script.init(&[_]u8{}),
@@ -172,7 +172,7 @@ test "interpreter verifyOutcome exposes compact false results" {
         .inputs = &[_]Input{
             .{
                 .previous_outpoint = OutPoint{
-                    .txid = .{ .bytes = [_]u8{0} ** 32 },
+                    .txid = .{ .bytes = @as([32]u8, @splat(0)) },
                     .index = 0,
                 },
                 .unlocking_script = Script.init(&[_]u8{}),
@@ -207,7 +207,7 @@ test "interpreter verifyPrevoutDetailed exposes structured false results" {
         .inputs = &[_]Input{
             .{
                 .previous_outpoint = OutPoint{
-                    .txid = .{ .bytes = [_]u8{0} ** 32 },
+                    .txid = .{ .bytes = @as([32]u8, @splat(0)) },
                     .index = 0,
                 },
                 .unlocking_script = Script.init(&[_]u8{}),
@@ -246,7 +246,7 @@ test "interpreter verifyPrevoutOutcome exposes compact false results" {
         .inputs = &[_]Input{
             .{
                 .previous_outpoint = OutPoint{
-                    .txid = .{ .bytes = [_]u8{0} ** 32 },
+                    .txid = .{ .bytes = @as([32]u8, @splat(0)) },
                     .index = 0,
                 },
                 .unlocking_script = Script.init(&[_]u8{}),
@@ -291,7 +291,7 @@ test "interpreter verifyPrevout can explicitly execute legacy P2SH redeem script
         .inputs = &[_]Input{
             .{
                 .previous_outpoint = OutPoint{
-                    .txid = .{ .bytes = [_]u8{0x11} ** 32 },
+                    .txid = .{ .bytes = @as([32]u8, @splat(0x11)) },
                     .index = 0,
                 },
                 .unlocking_script = Script.init(&unlocking_script_bytes),
