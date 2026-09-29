@@ -14,8 +14,23 @@
 //! - OP_2MUL / OP_2DIV (opcode2Mul / opcode2Div): exact bignum x2 and /2,
 //!   /2 truncating toward zero (-1 -> 0, -5 -> -2), minimally encoded, well
 //!   past 64 bits.
-//! - OP_LSHIFTNUM / OP_RSHIFTNUM (opcodeShiftNum): numeric shifts, the right
-//!   shift rounding toward negative infinity (-5 >> 1 == -3, -1 >> 200 == -1).
+//! - OP_LSHIFTNUM / OP_RSHIFTNUM (opcodeShiftNum): numeric shifts.
+//!   go-sdk's right shift rounds toward negative infinity (-5 >> 1 == -3,
+//!   -1 >> 200 == -1), but that disagrees with SV Node, the consensus
+//!   reference: SV Node's bignum path (`bsv::bint::operator>>=` in
+//!   big_int.cpp, OpenSSL `BN_rshift` on a sign-magnitude BIGNUM) rounds
+//!   toward zero instead (-5 >> 1 == -2, -1 >> 200 == 0). The rsh_1, rsh_2,
+//!   rsh_3, rsh_7, rsh_9 and rsh_11 rows below have been corrected by hand
+//!   to follow SV Node rather than the go-sdk oracle output that
+//!   chronicle_oracle produced; every other row here is unaffected because
+//!   it is either non-negative or divides its shift count evenly. go-sdk's
+//!   right shift is being fixed upstream: bsv-blockchain/go-sdk PR #370
+//!   (fix/rshiftnum-round-toward-zero). Left shift is exact and
+//!   sign-preserving either way (-1 << 7 == -128) and both SDKs agree on
+//!   it, but SV Node additionally rejects a shift whose result (or even a
+//!   pre-shift size estimate) would exceed MaxScriptNumLength
+//!   (script_num.cpp `CScriptNum::operator<<=`); the lsh_overflow_* rows
+//!   below are not go-sdk-derived and were added by hand for that.
 //! - OP_SUBSTR / OP_LEFT / OP_RIGHT range checks, OP_VER, OP_VERIF /
 //!   OP_VERNOTIF (exact 4-byte LE version match).
 //! - The same bytes before Chronicle: 2MUL/2DIV and VER/VERIF fail, the
@@ -117,19 +132,42 @@ const rows = [_]Row{
     .{ .name = "lsh_6", .chronicle = true, .version = 0x00000001, .script = "090000000000000000010101b6", .outcome = .success, .stack = &.{"000000000000000002"} },
     .{ .name = "lsh_7", .chronicle = true, .version = 0x00000001, .script = "0239300111b6", .outcome = .success, .stack = &.{"00007260"} },
     .{ .name = "rsh_0", .chronicle = true, .version = 0x00000001, .script = "01100102b7", .outcome = .success, .stack = &.{"04"} },
-    .{ .name = "rsh_1", .chronicle = true, .version = 0x00000001, .script = "01850101b7", .outcome = .success, .stack = &.{"83"} },
-    .{ .name = "rsh_2", .chronicle = true, .version = 0x00000001, .script = "01810101b7", .outcome = .success, .stack = &.{"81"} },
-    .{ .name = "rsh_3", .chronicle = true, .version = 0x00000001, .script = "018102c800b7", .outcome = .success, .stack = &.{"81"} },
+    // rsh_1: -5 >> 1. go-sdk (floor) gives -3 (0x83); SV Node (toward zero) gives -2 (0x82).
+    .{ .name = "rsh_1", .chronicle = true, .version = 0x00000001, .script = "01850101b7", .outcome = .success, .stack = &.{"82"} },
+    // rsh_2: -1 >> 1. go-sdk (floor) gives -1 (0x81); SV Node (toward zero) gives 0.
+    .{ .name = "rsh_2", .chronicle = true, .version = 0x00000001, .script = "01810101b7", .outcome = .false_result, .stack = &.{""} },
+    // rsh_3: -1 >> 200. go-sdk's negative-shift-converges-to-(-1) rule gives -1 (0x81);
+    // SV Node shifts the magnitude (1 >> 200 == 0) and keeps the sign, giving 0.
+    .{ .name = "rsh_3", .chronicle = true, .version = 0x00000001, .script = "018102c800b7", .outcome = .false_result, .stack = &.{""} },
     .{ .name = "rsh_4", .chronicle = true, .version = 0x00000001, .script = "010500b7", .outcome = .success, .stack = &.{"05"} },
     .{ .name = "rsh_5", .chronicle = true, .version = 0x00000001, .script = "01010101b7", .outcome = .false_result, .stack = &.{""} },
     .{ .name = "rsh_6", .chronicle = true, .version = 0x00000001, .script = "01900102b7", .outcome = .success, .stack = &.{"84"} },
-    .{ .name = "rsh_7", .chronicle = true, .version = 0x00000001, .script = "01910102b7", .outcome = .success, .stack = &.{"85"} },
+    // rsh_7: -17 >> 2. go-sdk (floor) gives -5 (0x85); SV Node (toward zero) gives -4 (0x84).
+    .{ .name = "rsh_7", .chronicle = true, .version = 0x00000001, .script = "01910102b7", .outcome = .success, .stack = &.{"84"} },
     .{ .name = "rsh_8", .chronicle = true, .version = 0x00000001, .script = "0d050000000000000000000000100163b7", .outcome = .success, .stack = &.{"02"} },
-    .{ .name = "rsh_9", .chronicle = true, .version = 0x00000001, .script = "0d050000000000000000000000900163b7", .outcome = .success, .stack = &.{"83"} },
+    // rsh_9: same magnitude as rsh_8 but negative, >> 99. go-sdk (floor) gives 0x83; SV Node (toward zero) gives 0x82.
+    .{ .name = "rsh_9", .chronicle = true, .version = 0x00000001, .script = "0d050000000000000000000000900163b7", .outcome = .success, .stack = &.{"82"} },
     .{ .name = "rsh_10", .chronicle = true, .version = 0x00000001, .script = "0107022c01b7", .outcome = .false_result, .stack = &.{""} },
-    .{ .name = "rsh_11", .chronicle = true, .version = 0x00000001, .script = "0187022c01b7", .outcome = .success, .stack = &.{"81"} },
+    // rsh_11: -7 >> 300. go-sdk's negative-shift-converges-to-(-1) rule gives -1 (0x81);
+    // SV Node shifts the magnitude (7 >> 300 == 0) and keeps the sign, giving 0.
+    .{ .name = "rsh_11", .chronicle = true, .version = 0x00000001, .script = "0187022c01b7", .outcome = .false_result, .stack = &.{""} },
     .{ .name = "lsh_neg", .chronicle = true, .version = 0x00000001, .script = "01010181b6", .outcome = .{ .script_error = error.NegativeShift }, .stack = &.{} },
     .{ .name = "rsh_neg", .chronicle = true, .version = 0x00000001, .script = "01010181b7", .outcome = .{ .script_error = error.NegativeShift }, .stack = &.{} },
+    // Not go-sdk-derived (chronicle_oracle doesn't exercise these); added by
+    // hand against SV Node's bint shift path.
+    //
+    // lsh_overflow_bytes: 0 << (32 MiB * 8 + 8). CScriptNum::operator<<='s
+    // bint branch (script_num.cpp) rejects a shift once its
+    // shift-count-in-bytes estimate alone exceeds MaxScriptNumLength, even
+    // for a zero value that would otherwise still encode as zero bytes.
+    .{ .name = "lsh_overflow_bytes", .chronicle = true, .version = 0x00000001, .script = "000408000010b6", .outcome = .{ .script_error = error.NumberTooBig }, .stack = &.{} },
+    // lsh_intmax_overflow / rsh_intmax_overflow: shift count 2147483648 ==
+    // INT_MAX + 1. bsv::bint::operator<<=/operator>>=(const bint&) both
+    // reject a shift count greater than INT_MAX outright (big_int.cpp) --
+    // it does not saturate the way an out-of-range OP_LSHIFT/OP_RSHIFT byte
+    // count would.
+    .{ .name = "lsh_intmax_overflow", .chronicle = true, .version = 0x00000001, .script = "0101050000008000b6", .outcome = .{ .script_error = error.NumberTooBig }, .stack = &.{} },
+    .{ .name = "rsh_intmax_overflow", .chronicle = true, .version = 0x00000001, .script = "0101050000008000b7", .outcome = .{ .script_error = error.NumberTooBig }, .stack = &.{} },
     .{ .name = "substr_0", .chronicle = true, .version = 0x00000001, .script = "06616263646566000106b3", .outcome = .success, .stack = &.{"616263646566"} },
     .{ .name = "substr_1", .chronicle = true, .version = 0x00000001, .script = "0661626364656601010103b3", .outcome = .success, .stack = &.{"626364"} },
     .{ .name = "substr_2", .chronicle = true, .version = 0x00000001, .script = "0661626364656601050101b3", .outcome = .success, .stack = &.{"66"} },

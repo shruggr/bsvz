@@ -915,6 +915,28 @@ fn popShiftCount(ctx: ExecutionContext, state: *ExecutionState) Error!usize {
     return std.math.cast(usize, signed) orelse error.InvalidStackIndex;
 }
 
+/// The shift-count operand of OP_LSHIFTNUM/OP_RSHIFTNUM, which must fit a
+/// C `int` (`bsv::bint::operator<<=`/`operator>>=(const bint&)`,
+/// big_int.cpp: `if(n > INT_MAX) throw big_int_error()`, mapped to
+/// SCRIPT_ERR_BIG_INT / error.NumberTooBig here). A count that doesn't fit
+/// fails outright; it is not saturated or clamped.
+fn shiftCountBits(shift_num: *const num.ScriptNum) Error!usize {
+    const bits_i32: i32 = switch (shift_num.*) {
+        .small => |small| std.math.cast(i32, small) orelse return error.NumberTooBig,
+        .big => |big_value| big_value.toInt(i32) catch return error.NumberTooBig,
+    };
+    return @intCast(bits_i32);
+}
+
+/// The script-number encoded byte length of `value`, i.e. what SV Node's
+/// `CScriptNum::serialized_size()` / `bsv::bint::serialized_size()` return,
+/// used by OP_LSHIFTNUM's MaxScriptNumLength checks.
+fn scriptNumEncodedLen(ctx: ExecutionContext, value: *const num.ScriptNum) Error!usize {
+    const encoded = try value.encodeOwned(ctx.allocator);
+    defer ctx.allocator.free(encoded);
+    return encoded.len;
+}
+
 fn scriptNumToI64(value: *const num.ScriptNum) Error!i64 {
     return switch (value.*) {
         .small => |small| small,
@@ -971,27 +993,49 @@ fn executeChronicleNopReplacement(ctx: ExecutionContext, state: *ExecutionState,
             try pushCopy(ctx, state, if (op == opcode.Opcode.OP_LEFT) data[0..n] else data[data.len - n ..]);
         },
         // OP_LSHIFTNUM / OP_RSHIFTNUM: [value n] -> [value << n] / [value >> n]
-        // on script numbers (not bytes, unlike OP_LSHIFT / OP_RSHIFT). A
-        // negative n fails; n saturates at 32 MiB * 8 bits as in go-sdk
-        // (`maxShiftBits`). The right shift rounds toward negative infinity,
-        // as go-sdk's big.Int.Rsh does (see ScriptNum.shiftRight).
+        // on script numbers (not bytes, unlike OP_LSHIFT / OP_RSHIFT).
+        // Source: SV Node interpreter.cpp OP_LSHIFTNUM/OP_RSHIFTNUM cases.
+        // Both operands are always decoded as bignum CScriptNums there
+        // (`const CScriptNum n{s0, requireMinimal, max_len, true}`), so only
+        // the bsv::bint shift path (script_num.cpp's "else [[likely]]"
+        // branches, i.e. big_int.cpp's `bsv::bint::operator<<=`/`operator>>=`
+        // taking a `const bint&`) ever runs; the int64 shift path in
+        // script_num.cpp is dead code for these two opcodes. A negative n
+        // fails with SCRIPT_ERR_INVALID_NUMBER_RANGE; a shift count greater
+        // than INT_MAX fails outright (big_int.cpp: `if(n > INT_MAX) throw
+        // big_int_error()`), it does not saturate. The right shift rounds
+        // toward zero, not negative infinity (see ScriptNum.shiftRight).
         opcode.Opcode.OP_LSHIFTNUM, opcode.Opcode.OP_RSHIFTNUM => {
             var shift_num = try popNum(ctx, state);
             defer shift_num.deinit();
             if (shift_num.isNegative()) return error.NegativeShift;
-            const max_shift_bits: usize = limits.max_script_number_length_after_chronicle * 8;
-            const bits: usize = switch (shift_num) {
-                .small => |small| @min(@as(usize, @intCast(small)), max_shift_bits),
-                .big => max_shift_bits,
-            };
+            const bits = try shiftCountBits(&shift_num);
+
             var value = try popNum(ctx, state);
             defer value.deinit();
-            var out = if (op == opcode.Opcode.OP_LSHIFTNUM)
-                try value.shiftLeft(bits, ctx.allocator)
-            else
-                try value.shiftRight(bits, ctx.allocator);
-            defer out.deinit();
-            try pushScriptNum(ctx, state, &out);
+
+            if (op == opcode.Opcode.OP_LSHIFTNUM) {
+                // CScriptNum::operator<<='s bint branch (script_num.cpp)
+                // enforces MaxScriptNumLength() both on a pre-shift size
+                // estimate (current size plus the whole shift-count-in-bytes,
+                // so even 0 << n overflows once n/8 exceeds the limit) and
+                // on the shifted result.
+                const max_len = ctx.flags.scriptNumberLengthLimit();
+                const current_size = try scriptNumEncodedLen(ctx, &value);
+                const shift_bytes = bits / 8;
+                if (current_size + shift_bytes > max_len) return error.NumberTooBig;
+
+                var out = try value.shiftLeft(bits, ctx.allocator);
+                defer out.deinit();
+                if (try scriptNumEncodedLen(ctx, &out) > max_len) return error.NumberTooBig;
+                try pushScriptNum(ctx, state, &out);
+            } else {
+                // Right shift only ever shrinks the encoding, so
+                // CScriptNum::operator>>= has no post-shift size check.
+                var out = try value.shiftRight(bits, ctx.allocator);
+                defer out.deinit();
+                try pushScriptNum(ctx, state, &out);
+            }
         },
         else => unreachable,
     }
