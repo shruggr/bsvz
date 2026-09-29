@@ -1,27 +1,9 @@
 const std = @import("std");
 
-var test_threaded: ?std.Io.Threaded = null;
-
-fn testIo() std.Io {
-    if (test_threaded == null) {
-        test_threaded = std.Io.Threaded.init(std.testing.allocator, .{ .environ = .empty });
-    }
-    return test_threaded.?.io();
-}
-
 const corpus_path = "../go-sdk/script/interpreter/data/script_tests.json";
 
-const coverage_flags = @import("external_coverage_notice.zig");
-
 fn accessOrRequire(rel_path: []const u8) !void {
-    std.Io.Dir.cwd().access(testIo(), rel_path, .{}) catch |err| switch (err) {
-        error.FileNotFound => {
-            if (coverage_flags.envRequiresExternalCoverage(std.heap.page_allocator)) return err;
-            std.debug.print("skipping: external corpus not present: {s}\n", .{rel_path});
-            return error.SkipZigTest;
-        },
-        else => return err,
-    };
+    try std.Io.Dir.cwd().access(std.testing.io, rel_path, .{});
 }
 
 const RowAccounting = struct {
@@ -38,7 +20,7 @@ fn collectAccountedRowRefs(allocator: std.mem.Allocator) !RowAccounting {
     var counts = std.AutoHashMap(usize, usize).init(allocator);
     errdefer counts.deinit();
 
-    const io = testIo();
+    const io = std.testing.io;
     var dir = try std.Io.Dir.cwd().openDir(io, "tests", .{ .iterate = true });
     defer dir.close(io);
 
@@ -102,7 +84,7 @@ test "all go corpus rows are explicitly accounted for" {
     var accounting = try collectAccountedRowRefs(allocator);
     defer accounting.deinit();
 
-    const file = try std.Io.Dir.cwd().readFileAlloc(testIo(), corpus_path, allocator, .limited(8 * 1024 * 1024));
+    const file = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, corpus_path, allocator, .limited(8 * 1024 * 1024));
     defer allocator.free(file);
 
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, file, .{});

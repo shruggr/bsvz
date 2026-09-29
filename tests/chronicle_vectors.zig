@@ -205,11 +205,11 @@ const rows = [_]Row{
     .{ .name = "pre_ver", .chronicle = false, .version = 0x00000002, .script = "62", .outcome = .{ .script_error = error.UnknownOpcode }, .stack = &.{} },
     .{ .name = "pre_verif", .chronicle = false, .version = 0x00000002, .script = "0402000000655168", .outcome = .{ .script_error = error.UnknownOpcode }, .stack = &.{} },
     .{ .name = "pre_verif_untaken", .chronicle = false, .version = 0x00000002, .script = "0063656851", .outcome = .success, .stack = &.{"01"} },
-    .{ .name = "pre_substr", .chronicle = false, .version = 0x00000001, .script = "0661626364656601010103b3", .outcome = .success, .stack = &.{"616263646566", "01", "03"} },
-    .{ .name = "pre_rsh", .chronicle = false, .version = 0x00000001, .script = "01100102b7", .outcome = .success, .stack = &.{"10", "02"} },
-    .{ .name = "pre_lsh", .chronicle = false, .version = 0x00000001, .script = "01010108b6", .outcome = .success, .stack = &.{"01", "08"} },
-    .{ .name = "pre_left", .chronicle = false, .version = 0x00000001, .script = "066162636465660102b4", .outcome = .success, .stack = &.{"616263646566", "02"} },
-    .{ .name = "pre_right", .chronicle = false, .version = 0x00000001, .script = "066162636465660102b5", .outcome = .success, .stack = &.{"616263646566", "02"} },
+    .{ .name = "pre_substr", .chronicle = false, .version = 0x00000001, .script = "0661626364656601010103b3", .outcome = .success, .stack = &.{ "616263646566", "01", "03" } },
+    .{ .name = "pre_rsh", .chronicle = false, .version = 0x00000001, .script = "01100102b7", .outcome = .success, .stack = &.{ "10", "02" } },
+    .{ .name = "pre_lsh", .chronicle = false, .version = 0x00000001, .script = "01010108b6", .outcome = .success, .stack = &.{ "01", "08" } },
+    .{ .name = "pre_left", .chronicle = false, .version = 0x00000001, .script = "066162636465660102b4", .outcome = .success, .stack = &.{ "616263646566", "02" } },
+    .{ .name = "pre_right", .chronicle = false, .version = 0x00000001, .script = "066162636465660102b5", .outcome = .success, .stack = &.{ "616263646566", "02" } },
 };
 
 fn runRow(allocator: std.mem.Allocator, row: Row) !void {
