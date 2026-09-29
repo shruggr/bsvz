@@ -1,6 +1,6 @@
 ![bsvz](assets/banner.png)
 
-![CI](https://github.com/samooth/bsvz/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/opldotdev/bsvz/actions/workflows/ci.yml/badge.svg)
 
 # bsvz
 

@@ -137,10 +137,15 @@ pub const KeyDeriver = struct {
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
+/// A 32-byte scalar that is zero except for its last byte.
+fn testKeyBytes(last: u8) [32]u8 {
+    var bytes: [32]u8 = @splat(0);
+    bytes[31] = last;
+    return bytes;
+}
+
 test "KeyDeriver identity key matches root public key" {
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
@@ -150,9 +155,7 @@ test "KeyDeriver identity key matches root public key" {
 }
 
 test "KeyDeriver identity key hex" {
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
@@ -170,9 +173,7 @@ test "KeyDeriver nil uses anyone key" {
 }
 
 test "KeyDeriver normalizeCounterparty self" {
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
@@ -182,9 +183,7 @@ test "KeyDeriver normalizeCounterparty self" {
 }
 
 test "KeyDeriver normalizeCounterparty anyone" {
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
@@ -194,15 +193,11 @@ test "KeyDeriver normalizeCounterparty anyone" {
 }
 
 test "KeyDeriver normalizeCounterparty other" {
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
-    var cp_bytes: [32]u8 = undefined;
-    @memset(cp_bytes[0..31], 0);
-    cp_bytes[31] = 69;
+    const cp_bytes = testKeyBytes(69);
     const cp_key = try ec.PrivateKey.fromBytes(cp_bytes);
     const cp_pub = try cp_key.publicKey();
 
@@ -211,9 +206,7 @@ test "KeyDeriver normalizeCounterparty other" {
 }
 
 test "KeyDeriver normalizeCounterparty other without key fails" {
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
@@ -222,15 +215,11 @@ test "KeyDeriver normalizeCounterparty other without key fails" {
 
 test "KeyDeriver derivePublicKey for self" {
     const a = std.testing.allocator;
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
-    var cp_bytes: [32]u8 = undefined;
-    @memset(cp_bytes[0..31], 0);
-    cp_bytes[31] = 69;
+    const cp_bytes = testKeyBytes(69);
     const cp_key = try ec.PrivateKey.fromBytes(cp_bytes);
     const cp_pub = try cp_key.publicKey();
 
@@ -244,15 +233,11 @@ test "KeyDeriver derivePublicKey for self" {
 
 test "KeyDeriver derivePublicKey for counterparty" {
     const a = std.testing.allocator;
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
-    var cp_bytes: [32]u8 = undefined;
-    @memset(cp_bytes[0..31], 0);
-    cp_bytes[31] = 69;
+    const cp_bytes = testKeyBytes(69);
     const cp_key = try ec.PrivateKey.fromBytes(cp_bytes);
     const cp_pub = try cp_key.publicKey();
 
@@ -265,15 +250,11 @@ test "KeyDeriver derivePublicKey for counterparty" {
 
 test "KeyDeriver derivePrivateKey" {
     const a = std.testing.allocator;
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
-    var cp_bytes: [32]u8 = undefined;
-    @memset(cp_bytes[0..31], 0);
-    cp_bytes[31] = 69;
+    const cp_bytes = testKeyBytes(69);
     const cp_key = try ec.PrivateKey.fromBytes(cp_bytes);
     const cp_pub = try cp_key.publicKey();
 
@@ -288,15 +269,11 @@ test "KeyDeriver derivePrivateKey" {
 
 test "KeyDeriver forSelf derived pubkey matches private derivation" {
     const a = std.testing.allocator;
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
-    var cp_bytes: [32]u8 = undefined;
-    @memset(cp_bytes[0..31], 0);
-    cp_bytes[31] = 69;
+    const cp_bytes = testKeyBytes(69);
     const cp_key = try ec.PrivateKey.fromBytes(cp_bytes);
     const cp_pub = try cp_key.publicKey();
 
@@ -317,9 +294,7 @@ test "KeyDeriver anyone derivation works" {
     const a = std.testing.allocator;
     const kd = KeyDeriver.init(null);
 
-    var cp_bytes: [32]u8 = undefined;
-    @memset(cp_bytes[0..31], 0);
-    cp_bytes[31] = 69;
+    const cp_bytes = testKeyBytes(69);
     const cp_key = try ec.PrivateKey.fromBytes(cp_bytes);
     const cp_pub = try cp_key.publicKey();
 
@@ -332,15 +307,11 @@ test "KeyDeriver anyone derivation works" {
 
 test "KeyDeriver revealSpecificSecret" {
     const a = std.testing.allocator;
-    var root_bytes: [32]u8 = undefined;
-    @memset(root_bytes[0..31], 0);
-    root_bytes[31] = 42;
+    const root_bytes = testKeyBytes(42);
     const root_key = try ec.PrivateKey.fromBytes(root_bytes);
     const kd = KeyDeriver.init(root_key);
 
-    var cp_bytes: [32]u8 = undefined;
-    @memset(cp_bytes[0..31], 0);
-    cp_bytes[31] = 69;
+    const cp_bytes = testKeyBytes(69);
     const cp_key = try ec.PrivateKey.fromBytes(cp_bytes);
     const cp_pub = try cp_key.publicKey();
 

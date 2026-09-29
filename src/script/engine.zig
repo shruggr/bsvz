@@ -4233,7 +4233,7 @@ test "engine byte and splice ops preserve exact boundary semantics" {
 
     var cat_state = try executeLockingScriptToStateForTest(allocator, cat_script.items);
     defer cat_state.deinit(allocator);
-    try expectExactStackItems(cat_state.stack.items, &.{ "abcd" });
+    try expectExactStackItems(cat_state.stack.items, &.{"abcd"});
 
     var split_at_zero_script: std.ArrayListUnmanaged(u8) = .empty;
     defer split_at_zero_script.deinit(allocator);

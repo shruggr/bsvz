@@ -592,7 +592,7 @@ test "num2bin and bin2num match representative go-sdk operation semantics" {
     }
 
     {
-        var decoded = try ScriptNum.bin2num(allocator, &.{ 0x80 });
+        var decoded = try ScriptNum.bin2num(allocator, &.{0x80});
         defer decoded.deinit();
         try std.testing.expect(decoded.isZero());
         const reencoded = try decoded.encodeOwned(allocator);
