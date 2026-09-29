@@ -213,6 +213,34 @@ pub const ScriptNum = union(enum) {
         return smallBinaryOp(lhs, rhs, .mod_trunc, allocator) orelse try bigBinaryOp(lhs, rhs, .mod_trunc, allocator);
     }
 
+    /// `lhs << bits`, exact (no width limit). Source for the Chronicle
+    /// OP_LSHIFTNUM semantics: go-sdk operations.go `opcodeShiftNum`
+    /// (`big.Int.Lsh`).
+    pub fn shiftLeft(self: *const ScriptNum, bits: usize, allocator: std.mem.Allocator) !ScriptNum {
+        if (self.isZero() or bits == 0) return self.clone(allocator);
+        var value = try self.toManaged(allocator);
+        defer value.deinit();
+        var result = try big.Managed.init(allocator);
+        errdefer result.deinit();
+        try result.shiftLeft(&value, bits);
+        return normalizeManaged(result);
+    }
+
+    /// `lhs >> bits`, rounding toward negative infinity (an arithmetic
+    /// shift: -5 >> 1 == -3, -1 >> n == -1). This matches go-sdk's
+    /// `big.Int.Rsh` in operations.go `opcodeShiftNum`, the reference for the
+    /// Chronicle OP_RSHIFTNUM. (@bsv/sdk's Spend.ts truncates toward zero for
+    /// negatives instead, giving -2 for -5 >> 1; the two SDKs disagree there.)
+    pub fn shiftRight(self: *const ScriptNum, bits: usize, allocator: std.mem.Allocator) !ScriptNum {
+        if (self.isZero() or bits == 0) return self.clone(allocator);
+        var value = try self.toManaged(allocator);
+        defer value.deinit();
+        var result = try big.Managed.init(allocator);
+        errdefer result.deinit();
+        try result.shiftRight(&value, bits);
+        return normalizeManaged(result);
+    }
+
     fn decodeInternal(allocator: std.mem.Allocator, bytes: []const u8, require_minimal: bool) Error!ScriptNum {
         if (bytes.len == 0) return .{ .small = 0 };
         if (require_minimal and !isMinimallyEncoded(bytes)) return error.NonMinimalEncoding;

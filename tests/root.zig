@@ -1,6 +1,7 @@
 comptime {
     _ = @import("external_coverage_notice.zig");
     _ = @import("smoke.zig");
+    _ = @import("chronicle_vectors.zig");
     _ = @import("go_control_flow_vectors.zig");
     _ = @import("go_corpus_accounting.zig");
     _ = @import("go_bitwise_vectors.zig");

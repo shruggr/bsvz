@@ -3,6 +3,7 @@ const context = @import("context.zig");
 const crypto = @import("../crypto/lib.zig");
 const errors = @import("errors.zig");
 const hash = @import("../crypto/hash.zig");
+const limits = @import("limits.zig");
 const num = @import("num.zig");
 const opcode = @import("opcode.zig");
 const parser = @import("parser.zig");
@@ -156,7 +157,10 @@ fn executeIntoState(
     script: Script,
     trace: ?*ExecutionTrace,
 ) Error!void {
+    // go-sdk thread.go apply(): "UTXOAfterChronicle requires UTXOAfterGenesis".
+    if (ctx.flags.utxo_after_chronicle and !ctx.flags.utxo_after_genesis) return error.InvalidFlags;
     try checkScriptSize(ctx, script);
+    const after_chronicle = ctx.flags.afterChronicle();
 
     var cursor: usize = 0;
     var early_return_after_genesis = false;
@@ -251,6 +255,25 @@ fn executeIntoState(
                 _ = state.else_seen_stack.pop();
                 continue;
             },
+            // Chronicle: OP_VERIF / OP_VERNOTIF are OP_IF / OP_NOTIF on "the
+            // top item is the 4-byte little-endian tx version". Before
+            // Chronicle they fall through to the always-illegal handling below.
+            // Source: go-sdk operations.go opcodeVerConditional /
+            // resolveVerCondition / txVersionMatchesBytes.
+            .OP_VERIF, .OP_VERNOTIF => if (after_chronicle) {
+                try countOp(ctx, state);
+                if (!early_return_after_genesis and shouldExecute(state)) {
+                    if (state.stack.items.len == 0) return error.UnbalancedConditionals;
+                    const item = try popOwned(state);
+                    defer ctx.allocator.free(item);
+                    const matches = txVersionMatches(ctx, item);
+                    try state.condition_stack.append(ctx.allocator, if (op == .OP_VERIF) matches else !matches);
+                } else {
+                    try state.condition_stack.append(ctx.allocator, false);
+                }
+                try state.else_seen_stack.append(ctx.allocator, false);
+                continue;
+            },
             else => {},
         }
 
@@ -292,12 +315,20 @@ fn executeIntoState(
         switch (op) {
             .OP_0, .OP_PUSHDATA1, .OP_PUSHDATA2, .OP_PUSHDATA4, .OP_1NEGATE, .OP_1, .OP_2, .OP_3, .OP_4, .OP_5, .OP_6, .OP_7, .OP_8, .OP_9, .OP_10, .OP_11, .OP_12, .OP_13, .OP_14, .OP_15, .OP_16, .OP_IF, .OP_NOTIF, .OP_ELSE, .OP_ENDIF => unreachable,
             .OP_NOP => try countOp(ctx, state),
-            .OP_NOP1,
             .OP_NOP4,
             .OP_NOP5,
             .OP_NOP6,
             .OP_NOP7,
             .OP_NOP8,
+            => {
+                try countOp(ctx, state);
+                if (after_chronicle) {
+                    try executeChronicleNopReplacement(ctx, state, op);
+                } else if (ctx.flags.discourage_upgradable_nops) {
+                    return error.DiscourageUpgradableNops;
+                }
+            },
+            .OP_NOP1,
             .OP_NOP9,
             .OP_NOP10,
             => {
@@ -320,8 +351,19 @@ fn executeIntoState(
                     try executeCheckSequenceVerify(ctx, state);
                 }
             },
+            // Chronicle: OP_VER pushes the tx version as 4 bytes little-endian.
+            // Source: go-sdk operations.go opcodeVer (reserved pre-Chronicle,
+            // and an error without a transaction).
+            .OP_VER => {
+                if (!after_chronicle) return error.UnknownOpcode;
+                try countOp(ctx, state);
+                const tx = ctx.tx orelse return error.MissingChecksigContext;
+                var version_bytes: [4]u8 = undefined;
+                std.mem.writeInt(i32, &version_bytes, tx.version, .little);
+                try pushCopy(ctx, state, &version_bytes);
+            },
+            // Reached for OP_VERIF / OP_VERNOTIF only before Chronicle.
             .OP_RESERVED,
-            .OP_VER,
             .OP_VERIF,
             .OP_VERNOTIF,
             .OP_RESERVED1,
@@ -516,7 +558,7 @@ fn executeIntoState(
                 defer value.deinit();
                 const minimal = try value.encodeOwned(ctx.allocator);
                 defer ctx.allocator.free(minimal);
-                if (minimal.len > ctx.flags.max_script_number_length) return error.NumberTooBig;
+                if (minimal.len > ctx.flags.scriptNumberLengthLimit()) return error.NumberTooBig;
                 try pushCopy(ctx, state, minimal);
             },
             .OP_SIZE => {
@@ -582,6 +624,25 @@ fn executeIntoState(
                     defer out.deinit();
                     try pushScriptNum(ctx, state, &out);
                 }
+            },
+            // Disabled before Chronicle (UnknownOpcode, as for any other
+            // disabled opcode); re-enabled by it. OP_2MUL multiplies by 2 and
+            // OP_2DIV divides by 2 truncating toward zero, both exact over
+            // bignums. Source: go-sdk thread.go executeOpcode (IsDisabled
+            // skipped when afterChronicle) and operations.go opcode2Mul /
+            // opcode2Div (ScriptNumber.Mul / .Div, the latter big.Int.Quo).
+            .OP_2MUL, .OP_2DIV => {
+                if (!after_chronicle) return error.UnknownOpcode;
+                try countOp(ctx, state);
+                var value = try popNum(ctx, state);
+                defer value.deinit();
+                const two = num.ScriptNum.fromInt(2);
+                var out = if (op == .OP_2MUL)
+                    try value.mul(&two, ctx.allocator)
+                else
+                    try value.divTrunc(&two, ctx.allocator);
+                defer out.deinit();
+                try pushScriptNum(ctx, state, &out);
             },
             .OP_ADD, .OP_SUB, .OP_MUL, .OP_DIV, .OP_MOD => {
                 try countOp(ctx, state);
@@ -807,7 +868,7 @@ fn popNum(ctx: ExecutionContext, state: *ExecutionState) Error!num.ScriptNum {
 }
 
 fn decodeScriptNum(ctx: ExecutionContext, value_bytes: []const u8) Error!num.ScriptNum {
-    if (value_bytes.len > ctx.flags.max_script_number_length) return error.NumberTooBig;
+    if (value_bytes.len > ctx.flags.scriptNumberLengthLimit()) return error.NumberTooBig;
     if (ctx.flags.minimal_data) {
         return num.ScriptNum.decodeMinimalOwned(ctx.allocator, value_bytes) catch |err| switch (err) {
             error.NonMinimalEncoding => error.MinimalData,
@@ -859,6 +920,81 @@ fn scriptNumToI64(value: *const num.ScriptNum) Error!i64 {
         .small => |small| small,
         .big => |big_value| big_value.toInt(i64) catch error.Overflow,
     };
+}
+
+/// Whether `item` is exactly the 4-byte little-endian encoding of the tx
+/// version; false without a transaction. Source: go-sdk operations.go
+/// txVersionMatchesBytes.
+fn txVersionMatches(ctx: ExecutionContext, item: []const u8) bool {
+    const tx = ctx.tx orelse return false;
+    if (item.len != 4) return false;
+    var version_bytes: [4]u8 = undefined;
+    std.mem.writeInt(i32, &version_bytes, tx.version, .little);
+    return std.mem.eql(u8, item, &version_bytes);
+}
+
+/// Pops a script number used as a Chronicle byte offset or length. Values
+/// outside i64 are reported like any other out-of-range operand.
+fn popChronicleOperand(ctx: ExecutionContext, state: *ExecutionState) Error!i64 {
+    var value = try popNum(ctx, state);
+    defer value.deinit();
+    return scriptNumToI64(&value) catch error.NumberTooBig;
+}
+
+/// The Chronicle meanings of 0xb3..0xb7 (OP_NOP4..OP_NOP8). Source: go-sdk
+/// operations.go opcodeSubstr, opcodeLeft, opcodeRight (opcodeSliceBytes)
+/// and opcodeLShiftNum, opcodeRShiftNum (opcodeShiftNum); @bsv/sdk Spend.ts
+/// agrees on SUBSTR/LEFT/RIGHT and on the shift of non-negative values.
+fn executeChronicleNopReplacement(ctx: ExecutionContext, state: *ExecutionState, op: opcode.Opcode) Error!void {
+    switch (op) {
+        // OP_SUBSTR: [data begin len] -> [data[begin..begin+len]]. Fails
+        // unless 0 <= begin < size and 0 <= len <= size - begin (so it
+        // always fails on empty data), as go-sdk and @bsv/sdk both do.
+        opcode.Opcode.OP_SUBSTR => {
+            const len = try popChronicleOperand(ctx, state);
+            const begin = try popChronicleOperand(ctx, state);
+            const data = try popOwned(state);
+            defer ctx.allocator.free(data);
+            const size: i64 = @intCast(data.len);
+            if (begin < 0 or begin >= size or len < 0 or len > size - begin) return error.NumberTooBig;
+            const start: usize = @intCast(begin);
+            try pushCopy(ctx, state, data[start .. start + @as(usize, @intCast(len))]);
+        },
+        // OP_LEFT: [data len] -> [data[..len]]; OP_RIGHT: [data len] ->
+        // [data[size-len..]]. Both need 0 <= len <= size.
+        opcode.Opcode.OP_LEFT, opcode.Opcode.OP_RIGHT => {
+            const len = try popChronicleOperand(ctx, state);
+            const data = try popOwned(state);
+            defer ctx.allocator.free(data);
+            if (len < 0 or len > @as(i64, @intCast(data.len))) return error.NumberTooBig;
+            const n: usize = @intCast(len);
+            try pushCopy(ctx, state, if (op == opcode.Opcode.OP_LEFT) data[0..n] else data[data.len - n ..]);
+        },
+        // OP_LSHIFTNUM / OP_RSHIFTNUM: [value n] -> [value << n] / [value >> n]
+        // on script numbers (not bytes, unlike OP_LSHIFT / OP_RSHIFT). A
+        // negative n fails; n saturates at 32 MiB * 8 bits as in go-sdk
+        // (`maxShiftBits`). The right shift rounds toward negative infinity,
+        // as go-sdk's big.Int.Rsh does (see ScriptNum.shiftRight).
+        opcode.Opcode.OP_LSHIFTNUM, opcode.Opcode.OP_RSHIFTNUM => {
+            var shift_num = try popNum(ctx, state);
+            defer shift_num.deinit();
+            if (shift_num.isNegative()) return error.NegativeShift;
+            const max_shift_bits: usize = limits.max_script_number_length_after_chronicle * 8;
+            const bits: usize = switch (shift_num) {
+                .small => |small| @min(@as(usize, @intCast(small)), max_shift_bits),
+                .big => max_shift_bits,
+            };
+            var value = try popNum(ctx, state);
+            defer value.deinit();
+            var out = if (op == opcode.Opcode.OP_LSHIFTNUM)
+                try value.shiftLeft(bits, ctx.allocator)
+            else
+                try value.shiftRight(bits, ctx.allocator);
+            defer out.deinit();
+            try pushScriptNum(ctx, state, &out);
+        },
+        else => unreachable,
+    }
 }
 
 fn verifyLockTime(tx_lock_time: i64, threshold: i64, lock_time: i64) Error!void {
