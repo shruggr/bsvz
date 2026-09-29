@@ -5,8 +5,9 @@
 //! come from tests/fixtures/amm_pool_vectors.zig; go-sdk accepted each pool
 //! spend under WithAfterChronicle when they were generated. Here bsvz must
 //! accept every input of every fixture transaction whose previous output is
-//! also a fixture with `ExecutionFlags.postChronicleBsv()`, and reject each
-//! pool spend (input 0 of the swaps and the removal) without it.
+//! also a fixture with `ExecutionFlags.postChronicleBsv()` (now also the
+//! default), and reject each pool spend (input 0 of the swaps and the
+//! removal) under `ExecutionFlags.postGenesisBsv()` (pre-Chronicle).
 const std = @import("std");
 const bsvz = @import("bsvz");
 const vectors = @import("fixtures/amm_pool_vectors.zig");
@@ -68,12 +69,16 @@ test "Rúnar AMM pool spends verify under Chronicle and only under Chronicle" {
             }
             checked += 1;
 
+            // Flags default to post-Chronicle mainnet rules now, so exercise
+            // the "without the flag" case with an explicit pre-Chronicle
+            // preset instead of relying on the default.
             const without = interpreter.verifyPrevoutOutcome(.{
                 .allocator = allocator,
                 .tx = tx,
                 .input_index = input_index,
                 .previous_output = previous_output,
                 .unlocking_script = input.unlocking_script,
+                .flags = ExecutionFlags.postGenesisBsv(),
             });
             if (isPoolSpend(f.name) and input_index == 0) {
                 // Pre-Chronicle, OP_2MUL is a disabled opcode.

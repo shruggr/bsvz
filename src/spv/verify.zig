@@ -14,7 +14,8 @@ pub const Error = interpreter.Error || error{
 /// Chronicle is active on BSV mainnet (height 943,816), so inputs are
 /// verified under post-Chronicle rules (OP_2MUL, OP_2DIV, ...), as go-sdk's
 /// spv.Verify does since go-sdk 413ed49 ("fix(spv): verify scripts under
-/// Chronicle rules", #360).
+/// Chronicle rules", #360). `postChronicleBsv()` is also `ExecutionFlags`'s
+/// default now; spelled out here so this stays correct if that ever changes.
 const script_flags = interpreter.ExecutionFlags.postChronicleBsv();
 
 pub const GullibleChainTracker = struct {

@@ -4070,7 +4070,7 @@ test "engine allows more than 20 multisig pubkeys after genesis" {
 
     try std.testing.expectError(error.InvalidMultisigKeyCount, executeScript(.{
         .allocator = allocator,
-        .flags = .{ .utxo_after_genesis = false },
+        .flags = .{ .utxo_after_genesis = false, .utxo_after_chronicle = false },
     }, script));
 }
 
@@ -4384,7 +4384,7 @@ test "engine treats OP_RETURN as post-genesis early success at top level" {
 
     try std.testing.expectError(error.ReturnEncountered, executeScript(.{
         .allocator = allocator,
-        .flags = .{ .utxo_after_genesis = false },
+        .flags = .{ .utxo_after_genesis = false, .utxo_after_chronicle = false },
     }, Script.init(&[_]u8{
         @intFromEnum(opcode.Opcode.OP_1),
         @intFromEnum(opcode.Opcode.OP_RETURN),
@@ -4489,9 +4489,12 @@ test "engine enforces script element and script number length limits" {
         @intFromEnum(opcode.Opcode.OP_1),
     })));
 
+    // Chronicle's 32 MiB limit replaces `max_script_number_length` rather
+    // than being bounded by it (see `scriptNumberLengthLimit`), so this test
+    // of the caller-supplied limit needs pre-Chronicle flags explicitly.
     try std.testing.expectError(error.NumberTooBig, executeScript(.{
         .allocator = allocator,
-        .flags = .{ .max_script_number_length = 4 },
+        .flags = .{ .max_script_number_length = 4, .utxo_after_chronicle = false },
     }, Script.init(&[_]u8{
         0x05,                                0x00, 0x00, 0x00, 0x80, 0x00,
         @intFromEnum(opcode.Opcode.OP_1ADD),
@@ -4499,7 +4502,7 @@ test "engine enforces script element and script number length limits" {
 
     var bin2num_result = try executeScript(.{
         .allocator = allocator,
-        .flags = .{ .max_script_number_length = 1 },
+        .flags = .{ .max_script_number_length = 1, .utxo_after_chronicle = false },
     }, Script.init(&[_]u8{
         0x02,                                   0x01,                             0x00,
         @intFromEnum(opcode.Opcode.OP_BIN2NUM), @intFromEnum(opcode.Opcode.OP_1), @intFromEnum(opcode.Opcode.OP_EQUAL),

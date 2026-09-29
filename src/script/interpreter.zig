@@ -23,9 +23,10 @@ pub const P2pkhSpendContext = struct {
     unlocking_script: Script,
     locking_script: Script,
     enable_legacy_p2sh: bool = false,
-    /// Script-verification policy. The default is post-Genesis without
-    /// Chronicle; pass `ExecutionFlags.postChronicleBsv()` for current mainnet
-    /// rules (needed for any script using OP_2MUL, OP_2DIV, OP_LSHIFTNUM, ...).
+    /// Script-verification policy. Defaults to current mainnet rules
+    /// (post-Chronicle, activated 7 April 2026); pass
+    /// `ExecutionFlags.postGenesisBsv()` to opt out and verify a
+    /// pre-Chronicle script instead.
     flags: ExecutionFlags = .{},
 
     fn executionContext(ctx: P2pkhSpendContext) ExecutionContext {
@@ -42,9 +43,10 @@ pub const PrevoutSpendContext = struct {
     previous_output: Output,
     unlocking_script: Script,
     enable_legacy_p2sh: bool = false,
-    /// Script-verification policy. The default is post-Genesis without
-    /// Chronicle; pass `ExecutionFlags.postChronicleBsv()` for current mainnet
-    /// rules (needed for any script using OP_2MUL, OP_2DIV, OP_LSHIFTNUM, ...).
+    /// Script-verification policy. Defaults to current mainnet rules
+    /// (post-Chronicle, activated 7 April 2026); pass
+    /// `ExecutionFlags.postGenesisBsv()` to opt out and verify a
+    /// pre-Chronicle script instead.
     flags: ExecutionFlags = .{},
 
     fn executionContext(ctx: PrevoutSpendContext) ExecutionContext {

@@ -13,9 +13,10 @@ pub const ExecutionFlags = struct {
     max_script_number_length: usize = 750_000,
     utxo_after_genesis: bool = true,
     /// The UTXO was created after the Chronicle upgrade (SV Node v1.2.0;
-    /// mainnet height 943,816, 7 April 2026). Requires `utxo_after_genesis`
-    /// (the engine returns `error.InvalidFlags` otherwise). Mirrors go-sdk's
-    /// `scriptflag.UTXOAfterChronicle` / `interpreter.WithAfterChronicle()`:
+    /// activated on BSV mainnet at height 943,816, 7 April 2026). Requires
+    /// `utxo_after_genesis` (the engine returns `error.InvalidFlags`
+    /// otherwise). Mirrors go-sdk's `scriptflag.UTXOAfterChronicle` /
+    /// `interpreter.WithAfterChronicle()`:
     ///
     /// - OP_2MUL / OP_2DIV execute instead of failing as disabled opcodes.
     /// - OP_VER pushes the tx version (4 bytes LE); OP_VERIF / OP_VERNOTIF
@@ -26,9 +27,11 @@ pub const ExecutionFlags = struct {
     ///   `limits.max_script_number_length_after_chronicle` (32 MiB) long; the
     ///   engine uses that in place of `max_script_number_length`.
     ///
-    /// Off by default so existing callers keep the post-Genesis policy; use
-    /// `postChronicleBsv()` for current mainnet rules.
-    utxo_after_chronicle: bool = false,
+    /// On by default: Chronicle has been active on mainnet since April 2026,
+    /// so `ExecutionFlags{}` already models current mainnet rules. Callers
+    /// that deliberately need pre-Chronicle (or pre-Genesis) verification
+    /// opt out with `postGenesisBsv()` or `legacyReference()`.
+    utxo_after_chronicle: bool = true,
     enable_reenabled_opcodes: bool = true,
     enable_sighash_forkid: bool = true,
     verify_bip143_sighash: bool = true,
@@ -46,14 +49,20 @@ pub const ExecutionFlags = struct {
     verify_check_locktime: bool = false,
     verify_check_sequence: bool = false,
 
+    /// The post-Genesis BSV policy without Chronicle: the mainnet rules that
+    /// applied before block 943,816 (7 April 2026). An explicit opt-out for
+    /// callers that deliberately verify pre-Chronicle scripts; current
+    /// mainnet rules are the default (`ExecutionFlags{}` / `postChronicleBsv()`).
     pub fn postGenesisBsv() ExecutionFlags {
-        return .{};
+        return .{ .utxo_after_chronicle = false };
     }
 
     /// The post-Genesis BSV policy with Chronicle active: current mainnet
-    /// rules (Chronicle activated at height 943,816).
+    /// rules (Chronicle activated at height 943,816, 7 April 2026). Same as
+    /// `ExecutionFlags{}`, the default; spelled out for callers that want to
+    /// say so explicitly.
     pub fn postChronicleBsv() ExecutionFlags {
-        return .{ .utxo_after_chronicle = true };
+        return .{};
     }
 
     /// Whether Chronicle rules apply. Chronicle implies Genesis; the engine
@@ -341,6 +350,23 @@ test "execution flag presets expose legacy and BSV policy envelopes" {
     chronicle_without_genesis.utxo_after_genesis = false;
     try std.testing.expect(!chronicle_without_genesis.afterChronicle());
     try std.testing.expect(!legacy.afterChronicle());
+}
+
+test "the default ExecutionFlags is post-Chronicle mainnet policy" {
+    // Chronicle activated on BSV mainnet at height 943,816 (7 April 2026),
+    // so `.{}` must already model current mainnet rules; pre-Chronicle
+    // verification is the explicit opt-out (`postGenesisBsv()`).
+    const default_flags = ExecutionFlags{};
+    try std.testing.expectEqualDeep(ExecutionFlags.postChronicleBsv(), default_flags);
+    try std.testing.expect(default_flags.utxo_after_genesis);
+    try std.testing.expect(default_flags.utxo_after_chronicle);
+    try std.testing.expect(default_flags.afterChronicle());
+    try std.testing.expectEqual(limits.max_script_number_length_after_chronicle, default_flags.scriptNumberLengthLimit());
+
+    const pre_chronicle = ExecutionFlags.postGenesisBsv();
+    try std.testing.expect(pre_chronicle.utxo_after_genesis);
+    try std.testing.expect(!pre_chronicle.utxo_after_chronicle);
+    try std.testing.expect(!pre_chronicle.afterChronicle());
 }
 
 test "execution context can be built directly from a previous output" {
