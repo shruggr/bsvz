@@ -3,44 +3,25 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Fill `buf` with cryptographically secure random bytes.
+/// Fill `buf` with cryptographically secure random bytes from the OS.
+///
+/// Uses the `randomSecure` implementation of `std.Io.Threaded` (getrandom on
+/// Linux with EINTR retry and errno checking, `random_get` on WASI without
+/// libc, the CNG device on Windows, arc4random_buf where libc provides it).
+/// Only the entropy path of the global single-threaded instance is used; it
+/// needs no initialization and spawns nothing. Panics if the OS cannot
+/// supply entropy: there is no safe fallback for key material.
 pub fn randomBytes(buf: []u8) void {
-    if (builtin.os.tag == .linux) {
-        var filled: usize = 0;
-        while (filled < buf.len) {
-            filled += std.os.linux.getrandom(buf[filled..].ptr, buf.len - filled, 0);
-        }
-    } else {
-        arc4random_buf(buf.ptr, buf.len);
-    }
+    const io = std.Io.Threaded.global_single_threaded.io();
+    io.randomSecure(buf) catch |err| std.debug.panic("bsvz: OS entropy unavailable: {s}", .{@errorName(err)});
 }
 
-extern "c" fn arc4random_buf(buf: [*]u8, nbytes: usize) void;
-
-/// Milliseconds since the Unix epoch.
-pub fn nowMilli() i64 {
-    var ts: std.c.timespec = undefined;
-    if (builtin.os.tag == .linux) {
-        _ = std.os.linux.clock_gettime(.REALTIME, &ts);
-    } else {
-        _ = std.c.clock_gettime(.REALTIME, &ts);
-    }
-    return @as(i64, ts.sec) * 1000 + @divTrunc(@as(i64, ts.nsec), 1_000_000);
-}
-
-/// Seconds since the Unix epoch.
-pub fn nowSecs() u64 {
-    var ts: std.c.timespec = undefined;
-    if (builtin.os.tag == .linux) {
-        _ = std.os.linux.clock_gettime(.REALTIME, &ts);
-    } else {
-        _ = std.c.clock_gettime(.REALTIME, &ts);
-    }
-    return @intCast(ts.sec);
-}
-
-test "nowSecs is plausible" {
-    try std.testing.expect(nowSecs() > 1_700_000_000);
+test "randomBytes fills the buffer" {
+    var a: [64]u8 = @splat(0);
+    var b: [64]u8 = @splat(0);
+    randomBytes(&a);
+    randomBytes(&b);
+    try std.testing.expect(!std.mem.eql(u8, &a, &b));
 }
 
 /// Replacement for `std.testing.refAllDeclsRecursive`, removed in Zig 0.16.
